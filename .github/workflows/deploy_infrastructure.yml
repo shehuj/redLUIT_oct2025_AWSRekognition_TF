@@ -119,16 +119,16 @@ jobs:
               body: output
             });
       
-      - name: Terraform Apply -lock=false
+      - name: Terraform Apply
         if: |
           (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
           (github.event_name == 'workflow_dispatch')
         working-directory: ./terraform
         run: |
-          terraform apply \
+          terraform apply -lock=false \
             -var="environment=${{ steps.env.outputs.environment }}" \
             -auto-approve
-            -lock=false
+            tfplan
       
       - name: Output Terraform Values
         if: |
