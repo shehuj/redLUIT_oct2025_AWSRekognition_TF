@@ -52,3 +52,9 @@ output "github_actions_setup" {
     AWS_REGION          = var.aws_region
   }
 }
+
+## To retrieve sensitive outputs like AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY,
+## run `terraform output <output_name>` in your local environment after deployment. These values should be added to your GitHub repository secrets for secure access.
+## For example:
+##   terraform output aws_access_key_id
+##   terraform output aws_secret_access_key
