@@ -9,7 +9,7 @@ on:
       - 'images/**'
 
 jobs:
-  analyze-images:
+  analyze-images-dev:
     runs-on: ubuntu-latest
     
     env:
