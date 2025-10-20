@@ -6,11 +6,3 @@
 # dynamodb_billing_mode    = "PAY_PER_REQUEST"
 # max_rekognition_labels   = 10
 # min_confidence           = 70.0
-
-environment               = "beta"
-enable_s3_versioning     = true
-lambda_memory_size       = 512
-lambda_timeout           = 60
-dynamodb_billing_mode    = "PAY_PER_REQUEST"
-max_rekognition_labels   = 10
-min_confidence           = 70.0
