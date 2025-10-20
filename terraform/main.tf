@@ -56,7 +56,7 @@ module "dynamodb" {
 # S3 Module - Create bucket (without event notifications yet)
 module "s3" {
   source = "./modules/s3"
-  
+#  lambda_function_arns = ""
   project_name   = local.project_name
   environment    = var.environment
   bucket_suffix  = random_string.suffix.result
