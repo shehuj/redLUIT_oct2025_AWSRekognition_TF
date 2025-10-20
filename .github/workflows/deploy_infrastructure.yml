@@ -11,6 +11,7 @@ on:
       - '/.github/workflows/on_pull_request.yml'
   pull_request:
     branches:
+      - main
       - dev
     paths:
       - 'terraform/**'
