@@ -1,0 +1,107 @@
+name: Analyze Images on Merge
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'images/**'
+
+jobs:
+  analyze-images-prod:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      DYNAMODB_TABLE_BETA: ${{ secrets.DYNAMODB_TABLE_BETA }}
+      DYNAMODB_TABLE_PROD: ${{ secrets.DYNAMODB_TABLE_PROD }}
+      AWS_GITHUB_ACTIONS_ROLE_ARN: ${{ secrets.GITHUB_ACTIONS_ROLE_ARN }}
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - name: Get changed image files
+        id: changed-files
+        run: |
+          # Get list of changed image files in this push
+          CHANGED_FILES=$(git diff --name-only --diff-filter=ACM HEAD^ HEAD | grep -E '^images/.*\.(jpg|jpeg|png)$' || echo "")
+          
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No image files changed"
+            echo "has_images=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changed images:"
+            echo "$CHANGED_FILES"
+            echo "has_images=true" >> $GITHUB_OUTPUT
+            echo "files<<EOF" >> $GITHUB_OUTPUT
+            echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Upload images to S3 (Production)
+        if: steps.changed-files.outputs.has_images == 'true'
+        run: |
+          echo "${{ steps.changed-files.outputs.files }}" | while IFS= read -r file; do
+            if [ -n "$file" ] && [ -f "$file" ]; then
+              filename=$(basename "$file")
+              
+              echo "Uploading $file to S3 production environment..."
+              aws s3 cp "$file" "s3://${{ secrets.S3_BUCKET }}/rekognition-input/prod/${filename}" \
+                --metadata "branch=main,commit-sha=${{ github.sha }}"
+              
+              echo "✓ Uploaded: $filename"
+            fi
+          done
+      
+      - name: Wait for Lambda processing
+        if: steps.changed-files.outputs.has_images == 'true'
+        run: |
+          echo "Waiting 10 seconds for Lambda to process images..."
+          sleep 10
+      
+      - name: Verify results in DynamoDB
+        if: steps.changed-files.outputs.has_images == 'true'
+        run: |
+          echo "Checking DynamoDB for production results..."
+          
+          # Query the last 5 items from prod_results table
+          aws dynamodb scan \
+            --table-name ${{ secrets.DYNAMODB_TABLE_PROD }} \
+            --limit 5 \
+            --output json | jq -r '.Items[] | "Filename: \(.filename.S), Labels: \(.label_count.N), Branch: \(.branch.S)"'
+      
+      - name: Generate summary
+        if: steps.changed-files.outputs.has_images == 'true'
+        run: |
+          echo "## Production Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Images processed:** $(echo '${{ steps.changed-files.outputs.files }}' | wc -l)" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** Production" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Processed files:**" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.changed-files.outputs.files }}" | while IFS= read -r file; do
+            if [ -n "$file" ]; then
+              echo "- \`$file\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Results stored in \`${{ secrets.DYNAMODB_TABLE_PROD }}\` DynamoDB table." >> $GITHUB_STEP_SUMMARY
+      
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Production image processing failed. Check logs for details."

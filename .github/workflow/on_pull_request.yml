@@ -1,0 +1,114 @@
+name: Analyze Images on Pull Request
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'images/**'
+
+jobs:
+  analyze-images:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      DYNAMODB_TABLE_BETA: ${{ secrets.DYNAMODB_TABLE_BETA }}
+      DYNAMODB_TABLE_PROD: ${{ secrets.DYNAMODB_TABLE_PROD }}
+      AWS_GITHUB_ACTIONS_ROLE_ARN: ${{ secrets.GITHUB_ACTIONS_ROLE_ARN }}
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - name: Get changed image files
+        id: changed-files
+        run: |
+          # Get list of changed image files
+          CHANGED_FILES=$(git diff --name-only --diff-filter=ACM ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -E '^images/.*\.(jpg|jpeg|png)$' || echo "")
+          
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No image files changed"
+            echo "has_images=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changed images:"
+            echo "$CHANGED_FILES"
+            echo "has_images=true" >> $GITHUB_OUTPUT
+            echo "files<<EOF" >> $GITHUB_OUTPUT
+            echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Upload images to S3 (Beta)
+        if: steps.changed-files.outputs.has_images == 'true'
+        run: |
+          echo "${{ steps.changed-files.outputs.files }}" | while IFS= read -r file; do
+            if [ -n "$file" ] && [ -f "$file" ]; then
+              filename=$(basename "$file")
+              branch_name="${{ github.head_ref }}"
+              
+              echo "Uploading $file to S3 beta environment..."
+              aws s3 cp "$file" "s3://${{ secrets.S3_BUCKET }}/rekognition-input/beta/${filename}" \
+                --metadata "branch=${branch_name},pr-number=${{ github.event.pull_request.number }}"
+              
+              echo "Uploaded: $filename"
+            fi
+          done
+      
+      - name: Wait for Lambda processing
+        if: steps.changed-files.outputs.has_images == 'true'
+        run: |
+          echo "Waiting 10 seconds for Lambda to process images..."
+          sleep 10
+      
+      - name: Verify results in DynamoDB
+        if: steps.changed-files.outputs.has_images == 'true'
+        run: |
+          echo "Checking DynamoDB for recent results..."
+          
+          # Query the last 5 items from beta_results table
+          aws dynamodb scan \
+            --table-name ${{ secrets.DYNAMODB_TABLE_BETA }} \
+            --limit 5 \
+            --output json | jq -r '.Items[] | "Filename: \(.filename.S), Labels: \(.label_count.N), Branch: \(.branch.S)"'
+      
+      - name: Comment on PR
+        if: steps.changed-files.outputs.has_images == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const files = `${{ steps.changed-files.outputs.files }}`.split('\n').filter(f => f.trim());
+            
+            const comment = `## Rekognition Analysis Complete (Beta)
+            
+            **Images processed:** ${files.length}
+            **Environment:** Beta
+            **Branch:** ${{ github.head_ref }}
+            
+            **Processed files:**
+            ${files.map(f => `- \`${f}\``).join('\n')}
+            
+            Results have been stored in the \`${{ secrets.DYNAMODB_TABLE_BETA }}\` DynamoDB table.
+            
+            Lambda functions triggered automatically via S3 events.
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
