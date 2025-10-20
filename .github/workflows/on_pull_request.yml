@@ -19,7 +19,8 @@ jobs:
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
       DYNAMODB_TABLE_BETA: ${{ secrets.DYNAMODB_TABLE_BETA }}
       DYNAMODB_TABLE_PROD: ${{ secrets.DYNAMODB_TABLE_PROD }}
-    permissions:
+      AWS_GITHUB_ACTIONS_ROLE_ARN: ${{ secrets.GITHUB_ACTIONS_ROLE_ARN }}
+      permissions:
       id-token: write
       contents: read
     

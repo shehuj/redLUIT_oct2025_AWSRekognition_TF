@@ -60,7 +60,7 @@ jobs:
               filename=$(basename "$file")
               
               echo "Uploading $file to S3 production environment..."
-              aws s3 cp "$file" "s3://${{ secrets.S3_BUCKET }}/rekognition-input/prod/${filename}" \
+              aws s3 cp "$file" "s3://${{ env.S3_BUCKET }}/rekognition-input/prod/${filename}" \
                 --metadata "branch=main,commit-sha=${{ github.sha }}"
               
               echo "✓ Uploaded: $filename"
@@ -80,7 +80,7 @@ jobs:
           
           # Query the last 5 items from prod_results table
           aws dynamodb scan \
-            --table-name ${{ secrets.DYNAMODB_TABLE_PROD }} \
+            --table-name ${{ env.DYNAMODB_TABLE_PROD }} \
             --limit 5 \
             --output json | jq -r '.Items[] | "Filename: \(.filename.S), Labels: \(.label_count.N), Branch: \(.branch.S)"'
       
@@ -100,7 +100,7 @@ jobs:
             fi
           done
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Results stored in \`${{ secrets.DYNAMODB_TABLE_PROD }}\` DynamoDB table." >> $GITHUB_STEP_SUMMARY
+          echo "Results stored in \`${{ env.DYNAMODB_TABLE_PROD }}\` DynamoDB table." >> $GITHUB_STEP_SUMMARY
       
       - name: Notify on failure
         if: failure()

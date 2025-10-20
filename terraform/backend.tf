@@ -9,6 +9,7 @@ terraform {
      region         = "us-east-1"
      encrypt        = false
      dynamodb_table = "beta-results"
+     
   }
 }
 
