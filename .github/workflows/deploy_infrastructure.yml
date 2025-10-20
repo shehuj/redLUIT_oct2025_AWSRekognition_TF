@@ -130,9 +130,7 @@ jobs:
         run: |
           terraform apply -lock=false \
             -var="environment=${{ steps.env.outputs.environment }}" \
-            -auto-approve
-            tfplan
-      
+            -auto-approve      
       - name: Output Terraform Values
         if: |
           (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -152,7 +150,7 @@ jobs:
           echo "## GitHub Secrets Configuration" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Add these to your GitHub repository secrets:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo " >> $GITHUB_STEP_SUMMARY"
           echo "- AWS_ACCESS_KEY_ID: (from Terraform output - sensitive)" >> $GITHUB_STEP_SUMMARY
           echo "- AWS_SECRET_ACCESS_KEY: (from Terraform output - sensitive)" >> $GITHUB_STEP_SUMMARY
           echo "- AWS_REGION: $(terraform output -raw aws_region || echo '${{ secrets.AWS_REGION }}')" >> $GITHUB_STEP_SUMMARY
