@@ -8,8 +8,8 @@ terraform {
      key            = "rekognition-pipeline/terraform.tfstate"
      region         = "us-east-1"
      encrypt        = false
-     dynamodb_table = "beta-results"
-     
+     dynamodb_table = "terraform-state-lock"
+
   }
 }
 
