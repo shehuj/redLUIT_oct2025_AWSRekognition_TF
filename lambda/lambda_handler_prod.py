@@ -12,6 +12,8 @@ from urllib.parse import unquote_plus
 # Initialize AWS clients
 rekognition_client = boto3.client('rekognition')
 dynamodb = boto3.resource('dynamodb')
+s3_client = boto3.client('s3')
+bucket_name = os.environ.get('S3_BUCKET', 'pixel-learning-rekognition-images-7bgawsey')
 
 # Get DynamoDB table name from environment variable
 DYNAMODB_TABLE = os.environ.get('DYNAMODB_TABLE', 'prod_results')
