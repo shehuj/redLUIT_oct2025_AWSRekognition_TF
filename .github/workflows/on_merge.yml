@@ -10,7 +10,7 @@ on:
 env:
   AWS_REGION: us-east-1
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }} 
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   S3_BUCKET: ${{ secrets.S3_BUCKET }}
   DYNAMODB_TABLE: prod_results
 
@@ -52,19 +52,58 @@ jobs:
             echo "Uploading: $filename"
             aws s3 cp "$file" "s3://${S3_BUCKET}/rekognition-input/prod/${filename}" \
               --metadata "environment=prod,branch=main,commit-sha=${GITHUB_SHA}"
-            echo "Uploaded to s3://${S3_BUCKET}/rekognition-input/prod/${filename}"
+            echo "✓ Uploaded to s3://${S3_BUCKET}/rekognition-input/prod/${filename}"
           done
-      
-      - name: Wait for Lambda processing
-        if: steps.changed-files.outputs.any_changed == 'true'
-        run: |
-          echo "Waiting 10 seconds for Lambda to process images..."
-          sleep 10
       
       - name: Validate DynamoDB Results
         if: steps.changed-files.outputs.any_changed == 'true'
         run: |
           echo "Validating results in DynamoDB table: ${DYNAMODB_TABLE}"
+          
+          # Function to check DynamoDB for results with retries
+          check_dynamodb() {
+            local s3_key=$1
+            local max_attempts=6
+            local wait_time=5
+            
+            for attempt in $(seq 1 $max_attempts); do
+              echo "  Attempt $attempt/$max_attempts..."
+              
+              # Query DynamoDB for the item
+              result=$(aws dynamodb get-item \
+                --table-name "${DYNAMODB_TABLE}" \
+                --key "{\"filename\": {\"S\": \"${s3_key}\"}}" \
+                --region "${AWS_REGION}" \
+                2>&1 || echo "ERROR")
+              
+              # Check if item exists
+              if echo "$result" | grep -q '"Item"'; then
+                echo "  ✓ Results found in DynamoDB"
+                
+                # Extract and display label count
+                label_count=$(echo "$result" | jq -r '.Item.label_count.N // "0"')
+                echo "    Label count: ${label_count}"
+                
+                # Display labels
+                echo "    Labels detected:"
+                echo "$result" | jq -r '.Item.labels.L[]? | "      - \(.M.Name.S): \(.M.Confidence.N)%"' 2>/dev/null || echo "      (unable to parse labels)"
+                
+                return 0
+              else
+                if [ $attempt -lt $max_attempts ]; then
+                  echo "  ⏳ Results not found yet, waiting ${wait_time} seconds..."
+                  sleep $wait_time
+                else
+                  echo "  ❌ Results not found after $max_attempts attempts"
+                  return 1
+                fi
+              fi
+            done
+          }
+          
+          # Process each changed file
+          success_count=0
+          fail_count=0
           
           for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
             filename=$(basename "$file")
@@ -73,41 +112,37 @@ jobs:
             echo ""
             echo "Checking for results: ${s3_key}"
             
-            # Query DynamoDB for the item
-            result=$(aws dynamodb get-item \
-              --table-name "${DYNAMODB_TABLE}" \
-              --key "{\"filename\": {\"S\": \"${s3_key}\"}}" \
-              --region "${AWS_REGION}" \
-              2>&1)
-            
-            if echo "$result" | grep -q "Item"; then
-              echo "Results found in DynamoDB"
-              
-              # Extract and display label count
-              label_count=$(echo "$result" | jq -r '.Item.label_count.N // "0"')
-              echo "Label count: ${label_count}"
-              
-              # Display labels
-              echo "Labels detected:"
-              echo "$result" | jq -r '.Item.labels.L[]? | "    - \(.M.Name.S): \(.M.Confidence.N)%"'
-              
+            if check_dynamodb "$s3_key"; then
+              ((success_count++))
             else
-              echo "Warning: Results not found in DynamoDB yet"
-              echo "This may indicate the Lambda function hasn't processed the image yet"
-              exit 1
+              ((fail_count++))
+              echo "  ⚠ Warning: Lambda may not have processed this image yet"
+              echo "  Check Lambda logs: aws logs tail /aws/lambda/rekognition-prod-handler --follow"
             fi
           done
           
           echo ""
           echo "========================================="
           echo "Production validation complete!"
-          echo "All images processed successfully"
+          echo "  Successful: ${success_count}"
+          echo "  Failed: ${fail_count}"
           echo "========================================="
+          
+          # Exit with error if any validations failed
+          if [ $fail_count -gt 0 ]; then
+            echo ""
+            echo "❌ Some images were not processed successfully"
+            echo "This could mean:"
+            echo "  1. Lambda function hasn't finished processing yet (wait longer)"
+            echo "  2. Lambda function encountered an error (check CloudWatch logs)"
+            echo "  3. S3 event notification not configured correctly"
+            exit 1
+          fi
       
       - name: Create deployment summary
         if: steps.changed-files.outputs.any_changed == 'true'
         run: |
-          echo "## Production Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Production Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** Production" >> $GITHUB_STEP_SUMMARY
           echo "**S3 Location:** \`rekognition-input/prod/\`" >> $GITHUB_STEP_SUMMARY
@@ -117,7 +152,7 @@ jobs:
           
           for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
             filename=$(basename "$file")
-            echo "- \`${filename}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ \`${filename}\`" >> $GITHUB_STEP_SUMMARY
           done
           
           echo "" >> $GITHUB_STEP_SUMMARY
