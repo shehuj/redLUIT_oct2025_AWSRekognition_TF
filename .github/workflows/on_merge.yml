@@ -106,3 +106,13 @@ jobs:
         if: failure()
         run: |
           echo "::error::Production image processing failed. Check logs for details."
+
+      - name: Cleanup Infrastructure
+        if: always()
+        run: |
+          echo "Cleaning up infrastructure resources..."
+          # Add any necessary cleanup commands here
+          echo "Cleanup completed."
+          terraform destroy -auto-approve
+          destroy_output=$(terraform destroy -auto-approve 2>&1)
+          echo "$destroy_output"
