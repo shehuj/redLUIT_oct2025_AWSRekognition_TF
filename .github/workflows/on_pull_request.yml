@@ -1,91 +1,118 @@
-name: Analyze Images on Pull Request
+name: Beta Image Processing (PR)
 
 on:
   pull_request:
     branches:
       - main
-
     paths:
       - 'images/**'
 
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  S3_BUCKET: ${{ secrets.S3_BUCKET }}
+  DYNAMODB_TABLE: beta_results
+
 jobs:
-  analyze-images-dev:
+  upload-to-beta:
     runs-on: ubuntu-latest
     
-    env:
-      AWS_REGION: ${{ secrets.AWS_REGION }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
-      DYNAMODB_TABLE_BETA: ${{ secrets.DYNAMODB_TABLE_BETA }}
-      DYNAMODB_TABLE_PROD: ${{ secrets.DYNAMODB_TABLE_PROD }}
-      AWS_GITHUB_ACTIONS_ROLE_ARN: ${{ secrets.GITHUB_ACTIONS_ROLE_ARN }}
-      permissions:
+    permissions:
       id-token: write
       contents: read
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
-          S3_BUCKET: ${{ secrets.S3_BUCKET }}
-          AWS_GITHUB_ACTIONS_ROLE_ARN: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       
-      - name: Get changed image files
+      - name: Find changed images
         id: changed-files
-        run: |
-          # Get list of changed image files
-          CHANGED_FILES=$(git diff --name-only --diff-filter=ACM ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -E '^images/.*\.(jpg|jpeg|png)$' || echo "")
-          
-          if [ -z "$CHANGED_FILES" ]; then
-            echo "No image files changed"
-            echo "has_images=false" >> $GITHUB_OUTPUT
-          else
-            echo "Changed images:"
-            echo "$CHANGED_FILES"
-            echo "has_images=true" >> $GITHUB_OUTPUT
-            echo "files<<EOF" >> $GITHUB_OUTPUT
-            echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          fi
+        uses: tj-actions/changed-files@v41
+        with:
+          files: |
+            images/**/*.jpg
+            images/**/*.jpeg
+            images/**/*.png
       
-      - name: Upload images to S3 (Beta)
-        if: steps.changed-files.outputs.has_images == 'true'
+      - name: Upload images to S3 Beta
+        if: steps.changed-files.outputs.any_changed == 'true'
         run: |
-          echo "${{ steps.changed-files.outputs.files }}" | while IFS= read -r file; do
-            if [ -n "$file" ] && [ -f "$file" ]; then
-              filename=$(basename "$file")
-              branch_name="${{ github.head_ref }}"
-              
-              echo "Uploading $file to S3 beta environment..."
-              aws s3 cp "$file" "s3://${{ env.S3_BUCKET }}/rekognition-input/beta/${filename}" \
-                --metadata "branch=${branch_name},pr-number=${{ github.event.pull_request.number }}"
-              
-              echo "Uploaded: $filename"
-            fi
+          echo "Uploading images to Beta environment (rekognition-input/beta/)"
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            filename=$(basename "$file")
+            echo "Uploading: $filename"
+            aws s3 cp "$file" "s3://${S3_BUCKET}/rekognition-input/beta/${filename}" \
+              --metadata "environment=beta,branch=${GITHUB_HEAD_REF},pr-number=${{ github.event.pull_request.number }}"
+            echo "Uploaded to s3://${S3_BUCKET}/rekognition-input/beta/${filename}"
           done
       
       - name: Wait for Lambda processing
-        if: steps.changed-files.outputs.has_images == 'true'
+        if: steps.changed-files.outputs.any_changed == 'true'
         run: |
           echo "Waiting 10 seconds for Lambda to process images..."
           sleep 10
       
-      - name: Verify results in DynamoDB
-        if: steps.changed-files.outputs.has_images == 'true'
+      - name: Validate DynamoDB Results
+        if: steps.changed-files.outputs.any_changed == 'true'
         run: |
-          echo "Checking DynamoDB for recent results..."
+          echo "Validating results in DynamoDB table: ${DYNAMODB_TABLE}"
           
-          # Query the last 5 items from beta_results table
-          aws dynamodb scan \
-            --table-name ${{ secrets.DYNAMODB_TABLE_BETA }} \
-            --limit 5 \
-            --output json | jq -r '.Items[] | "Filename: \(.filename.S), Labels: \(.label_count.N), Branch: \(.branch.S)"'
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            filename=$(basename "$file")
+            s3_key="rekognition-input/beta/${filename}"
+            
+            echo ""
+            echo "Checking for results: ${s3_key}"
+            
+            # Query DynamoDB for the item
+            result=$(aws dynamodb get-item \
+              --table-name "${DYNAMODB_TABLE}" \
+              --key "{\"filename\": {\"S\": \"${s3_key}\"}}" \
+              --region "${AWS_REGION}" \
+              2>&1)
+            
+            if echo "$result" | grep -q "Item"; then
+              echo "Results found in DynamoDB"
+              
+              # Extract and display label count
+              label_count=$(echo "$result" | jq -r '.Item.label_count.N // "0"')
+              echo "  Label count: ${label_count}"
+              
+              # Display labels
+              echo "  Labels detected:"
+              echo "$result" | jq -r '.Item.labels.L[]? | "    - \(.M.Name.S): \(.M.Confidence.N)%"'
+              
+            else
+              echo "Warning: Results not found in DynamoDB yet"
+              echo "This may indicate the Lambda function hasn't processed the image yet"
+              exit 1
+            fi
+          done
+          
+          echo ""
+          echo "========================================="
+          echo "Beta validation complete!"
+          echo "All images processed successfully"
+          echo "========================================="
+      
+      - name: Comment on PR
+        if: steps.changed-files.outputs.any_changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const files = '${{ steps.changed-files.outputs.all_changed_files }}'.split(' ');
+            const fileList = files.map(f => `- \`${f.split('/').pop()}\``).join('\n');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `##Beta Image Analysis Complete\n\n**Images processed:**\n${fileList}\n\n**Environment:** Beta\n**S3 Location:** \`rekognition-input/beta/\`\n**DynamoDB Table:** \`${process.env.DYNAMODB_TABLE}\`\n\n✅ Images uploaded and analyzed successfully via Lambda function.`
+            })

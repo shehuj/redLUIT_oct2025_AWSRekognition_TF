@@ -1,4 +1,4 @@
-name: Analyze Images on Merge
+name: Production Image Processing (Merge)
 
 on:
   push:
@@ -7,16 +7,17 @@ on:
     paths:
       - 'images/**'
 
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }} 
+  S3_BUCKET: ${{ secrets.S3_BUCKET }}
+  DYNAMODB_TABLE: prod_results
+
 jobs:
-  analyze-images-prod:
+  upload-to-prod:
     runs-on: ubuntu-latest
-    env:
-      AWS_REGION: ${{ secrets.AWS_REGION }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
-      DYNAMODB_TABLE_PROD: ${{ secrets.DYNAMODB_TABLE_PROD }}
-      AWS_GITHUB_ACTIONS_ROLE_ARN: ${{ secrets.GITHUB_ACTIONS_ROLE_ARN }}
+    
     permissions:
       id-token: write
       contents: read
@@ -30,79 +31,94 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       
-      - name: Get changed image files
+      - name: Find changed images
         id: changed-files
-        run: |
-          # Get list of changed image files in this push
-          CHANGED_FILES=$(git diff --name-only --diff-filter=ACM HEAD^ HEAD | grep -E '^images/.*\.(jpg|jpeg|png)$' || echo "")
-          
-          if [ -z "$CHANGED_FILES" ]; then
-            echo "No image files changed"
-            echo "has_images=false" >> $GITHUB_OUTPUT
-          else
-            echo "Changed images:"
-            echo "$CHANGED_FILES"
-            echo "has_images=true" >> $GITHUB_OUTPUT
-            echo "files<<EOF" >> $GITHUB_OUTPUT
-            echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          fi
+        uses: tj-actions/changed-files@v41
+        with:
+          files: |
+            images/**/*.jpg
+            images/**/*.jpeg
+            images/**/*.png
       
-      - name: Upload images to S3 (Production)
-        if: steps.changed-files.outputs.has_images == 'true'
+      - name: Upload images to S3 Production
+        if: steps.changed-files.outputs.any_changed == 'true'
         run: |
-          echo "${{ steps.changed-files.outputs.files }}" | while IFS= read -r file; do
-            if [ -n "$file" ] && [ -f "$file" ]; then
-              filename=$(basename "$file")
-              
-              echo "Uploading $file to S3 production environment..."
-              aws s3 cp "$file" "s3://${{ env.S3_BUCKET }}/rekognition-input/prod/${filename}" \
-                --metadata "branch=main,commit-sha=${{ github.sha }}"
-              
-              echo "✓ Uploaded: $filename"
-            fi
+          echo "Uploading images to Production environment (rekognition-input/prod/)"
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            filename=$(basename "$file")
+            echo "Uploading: $filename"
+            aws s3 cp "$file" "s3://${S3_BUCKET}/rekognition-input/prod/${filename}" \
+              --metadata "environment=prod,branch=main,commit-sha=${GITHUB_SHA}"
+            echo "Uploaded to s3://${S3_BUCKET}/rekognition-input/prod/${filename}"
           done
       
       - name: Wait for Lambda processing
-        if: steps.changed-files.outputs.has_images == 'true'
+        if: steps.changed-files.outputs.any_changed == 'true'
         run: |
           echo "Waiting 10 seconds for Lambda to process images..."
           sleep 10
       
-      - name: Verify results in DynamoDB
-        if: steps.changed-files.outputs.has_images == 'true'
+      - name: Validate DynamoDB Results
+        if: steps.changed-files.outputs.any_changed == 'true'
         run: |
-          echo "Checking DynamoDB for production results..."
+          echo "Validating results in DynamoDB table: ${DYNAMODB_TABLE}"
           
-          # Query the last 5 items from prod_results table
-          aws dynamodb scan \
-            --table-name ${{ env.DYNAMODB_TABLE_PROD }} \
-            --limit 5 \
-            --output json | jq -r '.Items[] | "Filename: \(.filename.S), Labels: \(.label_count.N), Branch: \(.branch.S)"'
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            filename=$(basename "$file")
+            s3_key="rekognition-input/prod/${filename}"
+            
+            echo ""
+            echo "Checking for results: ${s3_key}"
+            
+            # Query DynamoDB for the item
+            result=$(aws dynamodb get-item \
+              --table-name "${DYNAMODB_TABLE}" \
+              --key "{\"filename\": {\"S\": \"${s3_key}\"}}" \
+              --region "${AWS_REGION}" \
+              2>&1)
+            
+            if echo "$result" | grep -q "Item"; then
+              echo "Results found in DynamoDB"
+              
+              # Extract and display label count
+              label_count=$(echo "$result" | jq -r '.Item.label_count.N // "0"')
+              echo "Label count: ${label_count}"
+              
+              # Display labels
+              echo "Labels detected:"
+              echo "$result" | jq -r '.Item.labels.L[]? | "    - \(.M.Name.S): \(.M.Confidence.N)%"'
+              
+            else
+              echo "Warning: Results not found in DynamoDB yet"
+              echo "This may indicate the Lambda function hasn't processed the image yet"
+              exit 1
+            fi
+          done
+          
+          echo ""
+          echo "========================================="
+          echo "Production validation complete!"
+          echo "All images processed successfully"
+          echo "========================================="
       
-      - name: Generate summary
-        if: steps.changed-files.outputs.has_images == 'true'
+      - name: Create deployment summary
+        if: steps.changed-files.outputs.any_changed == 'true'
         run: |
           echo "## Production Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Images processed:** $(echo '${{ steps.changed-files.outputs.files }}' | wc -l)" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** Production" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**S3 Location:** \`rekognition-input/prod/\`" >> $GITHUB_STEP_SUMMARY
+          echo "**DynamoDB Table:** \`${DYNAMODB_TABLE}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Processed files:**" >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.changed-files.outputs.files }}" | while IFS= read -r file; do
-            if [ -n "$file" ]; then
-              echo "- \`$file\`" >> $GITHUB_STEP_SUMMARY
-            fi
+          echo "### Images Processed" >> $GITHUB_STEP_SUMMARY
+          
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            filename=$(basename "$file")
+            echo "- \`${filename}\`" >> $GITHUB_STEP_SUMMARY
           done
+          
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Results stored in \`${{ env.DYNAMODB_TABLE_PROD }}\` DynamoDB table." >> $GITHUB_STEP_SUMMARY
-      
-      - name: Notify on failure
-        if: failure()
-        run: |
-          echo "::error::Production image processing failed. Check logs for details."
+          echo "All images uploaded and analyzed successfully via Lambda function." >> $GITHUB_STEP_SUMMARY

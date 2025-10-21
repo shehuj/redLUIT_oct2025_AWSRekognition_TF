@@ -1,349 +1,282 @@
-# redLUIT_oct2025_AWSRekognition_TF
+# Event-Driven Image Classification Pipeline
 
-# Amazon Rekognition CI/CD Pipeline with Terraform
+A serverless, event-driven architecture for automated image classification using AWS Lambda, S3, Rekognition, and DynamoDB.
 
-Complete implementation guide for Pixel Learning Co.'s automated image classification system using Amazon Rekognition, S3, Lambda, DynamoDB, and GitHub Actions.
+## Overview
 
-## 📋 Table of Contents
+This project implements an automated image classification pipeline that processes images uploaded to S3, analyzes them using Amazon Rekognition, and stores results in DynamoDB. The architecture is fully event-driven with separate beta and production environments.
 
-1. [Prerequisites](#prerequisites)
-2. [Project Structure](#project-structure)
-3. [Step-by-Step Implementation](#step-by-step-implementation)
-4. [Testing & Validation](#testing--validation)
-5. [Troubleshooting](#troubleshooting)
+## Architecture
 
-## Prerequisites
+### Event Flow
 
-### Required Tools
-- AWS Account with appropriate permissions
-- Terraform >= 1.0
-- AWS CLI configured
-- GitHub repository
-- Python 3.9+
+1. **GitHub Actions** uploads images to S3 based on branch:
+   - Pull requests → `rekognition-input/beta/`
+   - Merges to main → `rekognition-input/prod/`
 
-### AWS Permissions Required
-- S3: CreateBucket, PutObject, GetObject
-- DynamoDB: CreateTable, PutItem, GetItem
-- Lambda: CreateFunction, UpdateFunctionCode
-- IAM: CreateRole, AttachRolePolicy
-- Rekognition: DetectLabels
+2. **S3 Event Notification** automatically triggers the appropriate Lambda function
 
-## Project Structure
+3. **Lambda Function** processes the image:
+   - Calls Amazon Rekognition to detect labels
+   - Stores results in environment-specific DynamoDB table
 
-```
-rekognition-pipeline/
-├── README.md
-├── terraform/
-│   ├── main.tf                    # Root module configuration
-│   ├── variables.tf               # Input variables
-│   ├── outputs.tf                 # Output values
-│   ├── backend.tf                 # Terraform state backend
-│   ├── modules/
-│   │   ├── s3/                    # S3 bucket module
-│   │   │   ├── main.tf
-│   │   │   ├── variables.tf
-│   │   │   └── outputs.tf
-│   │   ├── dynamodb/              # DynamoDB tables module
-│   │   │   ├── main.tf
-│   │   │   ├── variables.tf
-│   │   │   └── outputs.tf
-│   │   ├── lambda/                # Lambda functions module
-│   │   │   ├── main.tf
-│   │   │   ├── variables.tf
-│   │   │   └── outputs.tf
-│   │   └── iam/                   # IAM roles and policies module
-│   │       ├── main.tf
-│   │       ├── variables.tf
-│   │       └── outputs.tf
-│   └── environments/
-│       ├── beta.tfvars
-│       └── prod.tfvars
-├── lambda/
-│   ├── rekognition_handler.py     # Lambda function code
-│   └── requirements.txt
-├── scripts/
-│   └── analyze_image.py           # Local analysis script (foundational)
-├── .github/
-│   └── workflows/
-│       ├── on_pull_request.yml    # PR workflow
-│       ├── on_merge.yml           # Merge workflow
-│       └── deploy_infrastructure.yml  # Infrastructure deployment
-├── images/                        # Sample images directory
-│   └── .gitkeep
-└── .gitignore
-```
+4. **GitHub Actions** validates processing by querying DynamoDB
 
-## Step-by-Step Implementation
+### Key Benefits
 
-### Step 1: Initialize Project Structure
+- ✅ **Fully Decoupled**: GitHub Actions only handles uploads, Lambda handles processing
+- ✅ **Event-Driven**: Automatic processing via S3 triggers
+- ✅ **Scalable**: Lambda auto-scales based on upload volume
+- ✅ **Environment Separation**: Isolated beta and prod environments
+- ✅ **Validation**: Automated checks ensure successful processing
+
+## Components
+
+### Lambda Functions
+
+| Function | Trigger | DynamoDB Table |
+|----------|---------|----------------|
+| `rekognition-beta-handler` | `rekognition-input/beta/*` | `beta_results` |
+| `rekognition-prod-handler` | `rekognition-input/prod/*` | `prod_results` |
+
+### GitHub Actions Workflows
+
+| Workflow | Trigger | S3 Prefix |
+|----------|---------|-----------|
+| `on_pull_request.yml` | Pull Request | `rekognition-input/beta/` |
+| `on_merge.yml` | Push to main | `rekognition-input/prod/` |
+
+### Infrastructure
+
+- **S3 Bucket**: Image storage with event notifications
+- **DynamoDB Tables**: Results storage (beta and prod)
+- **IAM Roles**: Lambda execution and GitHub Actions permissions
+- **CloudWatch**: Logging and monitoring
+
+## Quick Start
+
+### 1. Deploy Infrastructure
 
 ```bash
-# Create project directory
-mkdir rekognition-pipeline
-cd rekognition-pipeline
-
-# Create directory structure
-mkdir -p terraform/modules/{s3,dynamodb,lambda,iam}
-mkdir -p terraform/environments
-mkdir -p lambda
-mkdir -p scripts
-mkdir -p .github/workflows
-mkdir -p images
+terraform init
+terraform apply -var="s3_bucket_name=your-bucket-name"
 ```
 
-### Step 2: Configure AWS Backend
+### 2. Configure GitHub Secrets
 
-Create `terraform/backend.tf`:
-```hcl
-terraform {
-  backend "s3" {
-    bucket         = "pixel-learning-terraform-state"
-    key            = "rekognition-pipeline/terraform.tfstate"
-    region         = "us-east-1"
-    encrypt        = true
-    dynamodb_table = "terraform-state-lock"
-  }
+Add to your repository secrets:
+- `AWS_ROLE_ARN`: IAM role for GitHub Actions
+- `S3_BUCKET`: S3 bucket name
+
+### 3. Add Workflows
+
+```bash
+cp on_pull_request.yml .github/workflows/
+cp on_merge.yml .github/workflows/
+git add .github/workflows/
+git commit -m "Add image processing workflows"
+git push
+```
+
+### 4. Test the Pipeline
+
+```bash
+# Create test branch
+git checkout -b test-pipeline
+
+# Add test image
+cp test-image.jpg images/
+git add images/test-image.jpg
+git commit -m "Test image processing"
+git push origin test-pipeline
+
+# Create pull request (triggers beta processing)
+# Merge to main (triggers prod processing)
+```
+
+## File Structure
+
+```
+.
+├── lambda_beta_handler.py          # Beta Lambda function
+├── lambda_prod_handler.py          # Prod Lambda function
+├── terraform_infrastructure.tf     # Infrastructure as Code
+├── on_pull_request.yml            # Beta workflow
+├── on_merge.yml                   # Prod workflow
+├── DEPLOYMENT_GUIDE.md            # Detailed deployment instructions
+└── README.md                      # This file
+```
+
+## How It Works
+
+### Beta Environment (Pull Requests)
+
+1. Developer creates PR with new/modified images
+2. Workflow uploads images to `rekognition-input/beta/`
+3. S3 event triggers `rekognition-beta-handler` Lambda
+4. Lambda analyzes image with Rekognition
+5. Results stored in `beta_results` DynamoDB table
+6. Workflow validates processing and comments on PR
+
+### Production Environment (Merges)
+
+1. PR merged to main branch
+2. Workflow uploads images to `rekognition-input/prod/`
+3. S3 event triggers `rekognition-prod-handler` Lambda
+4. Lambda analyzes image with Rekognition
+5. Results stored in `prod_results` DynamoDB table
+6. Workflow validates processing and creates summary
+
+## Data Schema
+
+### DynamoDB Item Structure
+
+```json
+{
+  "filename": "rekognition-input/beta/image.jpg",
+  "labels": [
+    {
+      "Name": "Dog",
+      "Confidence": 98.5
+    },
+    {
+      "Name": "Pet",
+      "Confidence": 95.2
+    }
+  ],
+  "timestamp": "2025-10-21T10:30:45Z",
+  "branch": "beta",
+  "environment": "beta",
+  "label_count": 2,
+  "analysis_method": "lambda_s3_trigger",
+  "s3_bucket": "your-bucket-name"
 }
 ```
 
-**Action Required**: Create the S3 bucket and DynamoDB table for state management:
-```bash
-aws s3 mb s3://pixel-learning-terraform-state --region us-east-1
-aws dynamodb create-table \
-  --table-name terraform-state-lock \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
-  --region us-east-1
-```
+## Monitoring
 
-### Step 3: Configure GitHub Secrets
-
-In your GitHub repository, add the following secrets (Settings → Secrets and variables → Actions):
-
-```
-AWS_ACCESS_KEY_ID=<your-access-key>
-AWS_SECRET_ACCESS_KEY=<your-secret-key>
-AWS_REGION=us-east-1
-S3_BUCKET=pixel-learning-rekognition-images
-DYNAMODB_TABLE_BETA=beta_results
-DYNAMODB_TABLE_PROD=prod_results
-```
-
-### Step 4: Deploy Infrastructure
+### View Lambda Logs
 
 ```bash
-# Navigate to terraform directory
-cd terraform
-
-# Initialize Terraform
-terraform init
-
-# Review the plan for beta environment
-terraform plan -var-file=environments/beta.tfvars
-
-# Apply beta infrastructure
-terraform apply -var-file=environments/beta.tfvars
-
-# Apply prod infrastructure
-terraform apply -var-file=environments/prod.tfvars
-```
-
-### Step 5: Test the Pipeline
-
-#### Foundational Testing (Direct GitHub Actions)
-
-```bash
-# Add a test image
-cp /path/to/your/image.jpg images/test_balloon.jpg
-
-# Create a new branch
-git checkout -b test-rekognition
-git add images/test_balloon.jpg
-git commit -m "Add test image"
-git push origin test-rekognition
-
-# Create a Pull Request
-# This triggers on_pull_request.yml → writes to beta_results
-```
-
-#### Advanced Testing (Lambda Event-Driven)
-
-```bash
-# The workflow will upload to S3, triggering Lambda automatically
-# Check DynamoDB for results:
-aws dynamodb scan --table-name beta_results --region us-east-1
-```
-
-### Step 6: Verify Results
-
-#### Check DynamoDB Tables
-
-```bash
-# Beta results
-aws dynamodb scan \
-  --table-name beta_results \
-  --region us-east-1 \
-  --output table
-
-# Production results (after merge)
-aws dynamodb scan \
-  --table-name prod_results \
-  --region us-east-1 \
-  --output table
-```
-
-#### Check S3 Uploads
-
-```bash
-aws s3 ls s3://pixel-learning-rekognition-images/rekognition-input/beta/
-aws s3 ls s3://pixel-learning-rekognition-images/rekognition-input/prod/
-```
-
-#### Check Lambda Logs
-
-```bash
-# Beta Lambda logs
+# Beta environment
 aws logs tail /aws/lambda/rekognition-beta-handler --follow
 
-# Prod Lambda logs
+# Production environment
 aws logs tail /aws/lambda/rekognition-prod-handler --follow
 ```
 
-## Testing & Validation
-
-### Local Testing (Foundational)
+### Query Results
 
 ```bash
-# Set environment variables
-export AWS_ACCESS_KEY_ID=<your-key>
-export AWS_SECRET_ACCESS_KEY=<your-secret>
-export AWS_REGION=us-east-1
-export S3_BUCKET=pixel-learning-rekognition-images
-export DYNAMODB_TABLE=beta_results
+# List all beta results
+aws dynamodb scan --table-name beta_results
 
-# Run the analysis script
-python scripts/analyze_image.py images/test_balloon.jpg beta
+# Get specific result
+aws dynamodb get-item \
+  --table-name beta_results \
+  --key '{"filename": {"S": "rekognition-input/beta/image.jpg"}}'
 ```
 
-### CI/CD Testing
+### CloudWatch Metrics
 
-1. **Pull Request Flow**:
-   - Create branch → Add image → Push → Open PR
-   - GitHub Actions runs `on_pull_request.yml`
-   - Uploads to `rekognition-input/beta/`
-   - Lambda processes and writes to `beta_results`
+Monitor in AWS Console:
+- Lambda invocations
+- Lambda errors
+- Lambda duration
+- DynamoDB read/write capacity
 
-2. **Merge Flow**:
-   - Merge PR to main
-   - GitHub Actions runs `on_merge.yml`
-   - Uploads to `rekognition-input/prod/`
-   - Lambda processes and writes to `prod_results`
+## Cost Optimization
 
-### Validation Checklist
+| Service | Optimization |
+|---------|-------------|
+| Lambda | 256MB memory, 60s timeout |
+| DynamoDB | On-demand billing mode |
+| S3 | Lifecycle policies for old images |
+| CloudWatch | 7-day retention for beta, 14-day for prod |
 
-- [ ] S3 bucket created with event notifications
-- [ ] DynamoDB tables (beta_results, prod_results) exist
-- [ ] Lambda functions deployed and executable
-- [ ] IAM roles have correct permissions
-- [ ] GitHub Actions workflows trigger correctly
-- [ ] Images upload to correct S3 prefixes
-- [ ] Lambda functions process images successfully
-- [ ] Results appear in correct DynamoDB tables
-- [ ] Labels include confidence scores and timestamps
+## Comparison: Original vs Refactored
+
+| Aspect | Original Script | Event-Driven Architecture |
+|--------|----------------|---------------------------|
+| **Execution** | Manual CLI or GitHub Action | Automatic via S3 events |
+| **Coupling** | Tight (workflow does everything) | Loose (separation of concerns) |
+| **Scalability** | Limited to workflow capacity | Auto-scales with Lambda |
+| **Maintenance** | Update workflows for changes | Update Lambda functions independently |
+| **Monitoring** | GitHub Actions logs only | CloudWatch + workflow logs |
+| **Retry Logic** | Manual or workflow-based | Automatic Lambda retries |
+
+## Advanced Features
+
+### Add Error Notifications
+
+```python
+# In Lambda function
+import boto3
+sns = boto3.client('sns')
+
+# On error
+sns.publish(
+    TopicArn='arn:aws:sns:region:account:topic',
+    Subject='Image Processing Failed',
+    Message=f'Failed to process {filename}'
+)
+```
+
+### Implement Batch Processing
+
+Configure S3 to batch multiple events before triggering Lambda.
+
+### Add Custom Metadata
+
+```bash
+# In GitHub Actions workflow
+aws s3 cp image.jpg s3://bucket/prefix/ \
+  --metadata "owner=john,project=ml-demo"
+```
 
 ## Troubleshooting
 
-### Common Issues
+### Lambda Not Triggered
 
-#### 1. Lambda Function Not Triggered
-```bash
-# Check S3 event notification configuration
-aws s3api get-bucket-notification-configuration \
-  --bucket pixel-learning-rekognition-images
+- Check S3 notification configuration: `aws s3api get-bucket-notification-configuration --bucket BUCKET`
+- Verify Lambda has permission to be invoked by S3
+- Ensure image is uploaded to correct prefix
 
-# Verify Lambda permissions
-aws lambda get-policy \
-  --function-name rekognition-beta-handler
-```
+### Validation Fails
 
-#### 2. Permission Denied Errors
-```bash
-# Check IAM role attached to Lambda
-aws lambda get-function-configuration \
-  --function-name rekognition-beta-handler \
-  --query 'Role'
+- Increase wait time in workflow (default: 10 seconds)
+- Check Lambda CloudWatch logs for errors
+- Verify DynamoDB table name in Lambda environment variables
 
-# Review IAM policy
-aws iam get-role-policy \
-  --role-name rekognition-lambda-role \
-  --policy-name rekognition-lambda-policy
-```
+### Permission Errors
 
-#### 3. DynamoDB Write Failures
-```bash
-# Check CloudWatch Logs
-aws logs filter-log-events \
-  --log-group-name /aws/lambda/rekognition-beta-handler \
-  --filter-pattern "ERROR"
-```
+- Review Lambda IAM role permissions
+- Check GitHub Actions role has S3 upload permissions
+- Verify DynamoDB table permissions
 
-#### 4. GitHub Actions Failures
-- Verify all secrets are configured
-- Check workflow syntax in YAML files
-- Review Actions logs in GitHub UI
-- Ensure AWS credentials have necessary permissions
+## Contributing
 
-### Debug Commands
+1. Create feature branch
+2. Add tests if applicable
+3. Update documentation
+4. Submit pull request (will trigger beta processing!)
 
-```bash
-# Test Lambda function manually
-aws lambda invoke \
-  --function-name rekognition-beta-handler \
-  --payload '{"Records":[{"s3":{"bucket":{"name":"pixel-learning-rekognition-images"},"object":{"key":"rekognition-input/beta/test.jpg"}}}]}' \
-  response.json
+## License
 
-# Check Rekognition service availability
-aws rekognition detect-labels \
-  --image '{"S3Object":{"Bucket":"pixel-learning-rekognition-images","Name":"rekognition-input/beta/test.jpg"}}' \
-  --max-labels 10
-```
-
-## Cost Estimates
-
-- **S3**: ~$0.023/GB/month
-- **DynamoDB**: Free tier covers 25GB, then $0.25/GB/month
-- **Lambda**: Free tier covers 1M requests/month
-- **Rekognition**: $1.00 per 1,000 images analyzed
-
-Expected monthly cost for moderate use: **$5-20**
-
-## Security Best Practices
-
-1. **Least Privilege**: IAM roles have minimum required permissions
-2. **Encryption**: S3 bucket encryption enabled
-3. **Secret Management**: No hardcoded credentials
-4. **Network Security**: Lambda functions in VPC (optional, for advanced security)
-5. **Logging**: CloudWatch logs enabled for audit trail
-
-## Next Steps
-
-1. **Monitoring**: Set up CloudWatch alarms for Lambda errors
-2. **Optimization**: Adjust Lambda memory/timeout based on usage
-3. **Scaling**: Consider batch processing for large image volumes
-4. **Enhancement**: Add custom labels or text detection features
-5. **CI/CD**: Automate infrastructure updates through GitHub Actions
-
-## Resources
-
-- [AWS Rekognition Documentation](https://docs.aws.amazon.com/rekognition/)
-- [Terraform AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
-- [GitHub Actions Documentation](https://docs.github.com/en/actions)
+MIT License - see LICENSE file for details
 
 ## Support
 
-For issues or questions:
-1. Check CloudWatch Logs
-2. Review Terraform plan output
-3. Validate AWS permissions
-4. Contact DevOps team
+- Review [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for detailed setup
+- Check CloudWatch logs for Lambda execution details
+- Review GitHub Actions workflow runs for validation issues
+
+## Future Enhancements
+
+- [ ] Add SNS notifications for processing failures
+- [ ] Implement image deduplication
+- [ ] Add support for video analysis
+- [ ] Create dashboard for metrics visualization
+- [ ] Implement archival of old results
+- [ ] Add unit and integration tests
+- [ ] Support additional Rekognition features (faces, text, etc.)
