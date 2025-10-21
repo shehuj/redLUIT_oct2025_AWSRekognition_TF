@@ -86,7 +86,7 @@ jobs:
               echo "  Label count: ${label_count}"
               
               # Display labels
-              echo "  Labels detected:"
+              echo "Labels detected:"
               echo "$result" | jq -r '.Item.labels.L[]? | "    - \(.M.Name.S): \(.M.Confidence.N)%"'
               
             else
@@ -114,5 +114,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `##Beta Image Analysis Complete\n\n**Images processed:**\n${fileList}\n\n**Environment:** Beta\n**S3 Location:** \`rekognition-input/beta/\`\n**DynamoDB Table:** \`${process.env.DYNAMODB_TABLE}\`\n\n✅ Images uploaded and analyzed successfully via Lambda function.`
+              body: `##Beta Image Analysis Complete\n\n**Images processed:**\n${fileList}\n\n**Environment:** Beta\n**S3 Location:** \`rekognition-input/beta/\`\n**DynamoDB Table:** \`${process.env.DYNAMODB_TABLE}\`\n\nImages uploaded and analyzed successfully via Lambda function.`
             })
