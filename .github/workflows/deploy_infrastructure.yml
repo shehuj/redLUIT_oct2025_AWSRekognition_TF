@@ -30,6 +30,9 @@ jobs:
   terraform:
     name: Terraform Plan & Apply
     runs-on: ubuntu-latest
+    env:
+      TF_IN_AUTOMATION: true
+      AWS_REGION: ${{ secrets.AWS_REGION }}
     
     permissions:
       pull-requests: write
@@ -140,20 +143,3 @@ jobs:
           echo "## Terraform Outputs" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           terraform output -json | jq -r 'to_entries[] | "**\(.key):** \(.value.value)"' >> $GITHUB_STEP_SUMMARY
-      
-      - name: Save GitHub Secrets Setup
-        if: |
-          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-          (github.event_name == 'workflow_dispatch')
-        working-directory: ./terraform
-        run: |
-          echo "## GitHub Secrets Configuration" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Add these to your GitHub repository secrets:" >> $GITHUB_STEP_SUMMARY
-          echo " >> $GITHUB_STEP_SUMMARY"
-          echo "- AWS_ACCESS_KEY_ID: (from Terraform output - sensitive)" >> $GITHUB_STEP_SUMMARY
-          echo "- AWS_SECRET_ACCESS_KEY: (from Terraform output - sensitive)" >> $GITHUB_STEP_SUMMARY
-          echo "- AWS_REGION: $(terraform output -raw aws_region || echo '${{ secrets.AWS_REGION }}')" >> $GITHUB_STEP_SUMMARY
-          echo "- S3_BUCKET: $(terraform output -raw s3_bucket_name)" >> $GITHUB_STEP_SUMMARY
-          echo "- DYNAMODB_TABLE_BETA: $(terraform output -raw dynamodb_beta_table_name)" >> $GITHUB_STEP_SUMMARY
-          echo "- DYNAMODB_TABLE_PROD: $(terraform output -raw dynamodb_prod_table_name)" >> $GITHUB_STEP_SUMMARY
