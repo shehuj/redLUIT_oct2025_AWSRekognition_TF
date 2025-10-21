@@ -9,8 +9,6 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   S3_BUCKET: ${{ secrets.S3_BUCKET }}
   DYNAMODB_TABLE: prod_results
 
@@ -171,7 +169,7 @@ jobs:
             else
               fail_count=$((fail_count + 1))
               echo ""
-              echo " Troubleshooting hints:"
+              echo "  Troubleshooting hints:"
               echo "  1. Check Lambda logs:"
               echo "     aws logs tail /aws/lambda/rekognition-prod-handler --follow --region ${AWS_REGION}"
               echo "  2. Verify S3 file was uploaded:"
@@ -207,7 +205,7 @@ jobs:
       - name: Create deployment summary
         if: steps.changed-files.outputs.any_changed == 'true'
         run: |
-          echo "##Production Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## Production Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** Production" >> $GITHUB_STEP_SUMMARY
           echo "**S3 Location:** \`rekognition-input/prod/\`" >> $GITHUB_STEP_SUMMARY

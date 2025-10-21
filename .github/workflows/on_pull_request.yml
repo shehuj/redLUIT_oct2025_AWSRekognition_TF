@@ -12,7 +12,7 @@ env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}å
   S3_BUCKET: ${{ secrets.S3_BUCKET }}
-  DYNAMODB_TABLE: ${{ secrets.DYNAMODB_BETA_TABLE }}
+  DYNAMODB_TABLE: beta_results
 
 jobs:
   upload-to-beta:
@@ -29,7 +29,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       
       - name: Find changed images
@@ -68,7 +68,7 @@ jobs:
             local wait_time=5
             
             for attempt in $(seq 1 $max_attempts); do
-              echo "Attempt $attempt/$max_attempts..."
+              echo "  Attempt $attempt/$max_attempts..."
               
               # Query DynamoDB for the item
               set +e  # Don't exit on error for this command
@@ -81,7 +81,7 @@ jobs:
               
               # Check if AWS CLI command failed
               if [ $query_exit_code -ne 0 ]; then
-                echo "AWS CLI error:"
+                echo "  AWS CLI error:"
                 echo "$result" | head -n 5
                 
                 if echo "$result" | grep -q "AccessDenied\|UnauthorizedOperation"; then
@@ -90,12 +90,12 @@ jobs:
                   return 1
                 elif echo "$result" | grep -q "ResourceNotFoundException"; then
                   echo ""
-                  echo "Table not found! Verify table name: ${DYNAMODB_TABLE}"
+                  echo "  Table not found! Verify table name: ${DYNAMODB_TABLE}"
                   return 1
                 fi
                 
                 if [ $attempt -lt $max_attempts ]; then
-                  echo "Retrying after ${wait_time} seconds..."
+                  echo "  Retrying after ${wait_time} seconds..."
                   sleep $wait_time
                   continue
                 else
@@ -105,12 +105,12 @@ jobs:
               
               # Check if item exists in response
               if echo "$result" | grep -q '"Item"'; then
-                echo "Results found in DynamoDB"
+                echo "  Results found in DynamoDB"
                 
                 # Try to extract label count (safe even if jq not available)
                 if command -v jq &> /dev/null; then
                   label_count=$(echo "$result" | jq -r '.Item.label_count.N // "unknown"')
-                  echo "Label count: ${label_count}"
+                  echo "    Label count: ${label_count}"
                   
                   # Display labels
                   echo "    Labels detected:"
@@ -124,10 +124,10 @@ jobs:
               else
                 # Empty result - item not found
                 if [ $attempt -lt $max_attempts ]; then
-                  echo "Results not found yet, waiting ${wait_time} seconds..."
+                  echo "  Results not found yet, waiting ${wait_time} seconds..."
                   sleep $wait_time
                 else
-                  echo "Results not found after $max_attempts attempts"
+                  echo "  Results not found after $max_attempts attempts"
                   
                   # Debug: Show what IS in the table
                   echo ""
@@ -138,7 +138,7 @@ jobs:
                     echo "  Total items in table: ${count}"
                     
                     if [ "$count" -eq 0 ]; then
-                      echo "Table is EMPTY - Lambda never wrote data"
+                      echo "  Table is EMPTY - Lambda never wrote data"
                     else
                       echo "  Table has items but this filename wasn't found"
                       echo "  Expected: ${s3_key}"
@@ -169,7 +169,7 @@ jobs:
             else
               fail_count=$((fail_count + 1))
               echo ""
-              echo "Troubleshooting hints:"
+              echo "  Troubleshooting hints:"
               echo "  1. Check Lambda logs:"
               echo "     aws logs tail /aws/lambda/rekognition-beta-handler --follow --region ${AWS_REGION}"
               echo "  2. Verify S3 file was uploaded:"
