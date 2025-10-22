@@ -202,27 +202,27 @@ check_dynamodb() {
         print_success "Beta table exists: $BETA_TABLE"
 
         # Provide partition + sort key for GetItem
-        KEY_FILENAME="example-file.jpg"
+        KEY_FILENAME=["s3.jpg", "dna.JPG, "luit-4.pdf"][0] 
         KEY_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
         print_info "Getting item from beta table using key: filename=$KEY_FILENAME, timestamp=$KEY_TIMESTAMP"
         if aws dynamodb get-item \
-             --table-name "$BETA_TABLE" \
+             --table-name "$DYNAMO_TABLE_BETA" \
              --key "{\"filename\":{\"S\":\"$KEY_FILENAME\"},\"timestamp\":{\"S\":\"$KEY_TIMESTAMP\"}}" &> /dev/null; then
             print_success "Successfully retrieved an item from beta table"
         else
             print_failure "Failed to retrieve item from beta table with provided key"
         fi
 
-        BETA_COUNT=$(aws dynamodb scan --table-name "$BETA_TABLE" --select COUNT --output json | jq -r '.Count')
+        BETA_COUNT=$(aws dynamodb scan --table-name "$DYNAMO_TABLE_BETA" --select COUNT --output json | jq -r '.Count')
         print_info "Items in beta table: $BETA_COUNT"
     else
-        print_failure "Beta table not found: $BETA_TABLE"
+        print_failure "Beta table not found: $DYNAMO_TABLE_BETA"
     fi
 
     # Prod table
-    if aws dynamodb describe-table --table-name "$PROD_TABLE" &> /dev/null; then
-        print_success "Prod table exists: $PROD_TABLE"
+    if aws dynamodb describe-table --table-name "$DYNAMO_TABLE_PROD" &> /dev/null; then
+        print_success "Prod table exists: $DYNAMO_TABLE_PROD"
 
         # Provide partition + sort key for GetItem (you may adjust values)
         KEY_FILENAME="example-file.jpg"
@@ -237,10 +237,10 @@ check_dynamodb() {
             print_failure "Failed to retrieve item from prod table with provided key"
         fi
 
-        PROD_COUNT=$(aws dynamodb scan --table-name "$PROD_TABLE" --select COUNT --output json | jq -r '.Count')
+        PROD_COUNT=$(aws dynamodb scan --table-name "$DYNAMO_TABLE_PROD" --select COUNT --output json | jq -r '.Count')
         print_info "Items in prod table: $PROD_COUNT"
     else
-        print_failure "Prod table not found: $PROD_TABLE"
+        print_failure "Prod table not found: $DYNAMO_TABLE_PROD"
     fi
 }
 
