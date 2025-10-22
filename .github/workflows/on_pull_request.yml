@@ -10,7 +10,7 @@ on:
 env:
   AWS_REGION: us-east-1
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}å
   S3_BUCKET: ${{ secrets.S3_BUCKET }}
   DYNAMODB_TABLE: beta_results
 
@@ -53,54 +53,154 @@ jobs:
             echo "Uploaded to s3://${S3_BUCKET}/rekognition-input/beta/${filename}"
           done
       
-      - name: Wait for Lambda processing
-        if: steps.changed-files.outputs.any_changed == 'true'
-        run: |
-          echo "Waiting 10 seconds for Lambda to process images..."
-          sleep 10
-      
       - name: Validate DynamoDB Results
         if: steps.changed-files.outputs.any_changed == 'true'
         run: |
+          set -e  # Exit on error
+          
           echo "Validating results in DynamoDB table: ${DYNAMODB_TABLE}"
+          echo "Region: ${AWS_REGION}"
+          
+          # Function to check DynamoDB for results with retries
+          check_dynamodb() {
+            local s3_key="$1"
+            local max_attempts=6
+            local wait_time=5
+            
+            for attempt in $(seq 1 $max_attempts); do
+              echo "  Attempt $attempt/$max_attempts..."
+              
+              # Query DynamoDB for the item
+              set +e  # Don't exit on error for this command
+              result=$(aws dynamodb get-item \
+                --table-name "${DYNAMODB_TABLE}" \
+                --key '{"filename": {"S": "'"${s3_key}"'"}}' \
+                --region "${AWS_REGION}" 2>&1)
+              query_exit_code=$?
+              set -e
+              
+              # Check if AWS CLI command failed
+              if [ $query_exit_code -ne 0 ]; then
+                echo "  AWS CLI error:"
+                echo "$result" | head -n 5
+                
+                if echo "$result" | grep -q "AccessDenied\|UnauthorizedOperation"; then
+                  echo ""
+                  echo "  Permission error! GitHub Actions role needs dynamodb:GetItem permission"
+                  return 1
+                elif echo "$result" | grep -q "ResourceNotFoundException"; then
+                  echo ""
+                  echo "  Table not found! Verify table name: ${DYNAMODB_TABLE}"
+                  return 1
+                fi
+                
+                if [ $attempt -lt $max_attempts ]; then
+                  echo "  Retrying after ${wait_time} seconds..."
+                  sleep $wait_time
+                  continue
+                else
+                  return 1
+                fi
+              fi
+              
+              # Check if item exists in response
+              if echo "$result" | grep -q '"Item"'; then
+                echo "  Results found in DynamoDB"
+                
+                # Try to extract label count (safe even if jq not available)
+                if command -v jq &> /dev/null; then
+                  label_count=$(echo "$result" | jq -r '.Item.label_count.N // "unknown"')
+                  echo "    Label count: ${label_count}"
+                  
+                  # Display labels
+                  echo "    Labels detected:"
+                  echo "$result" | jq -r '.Item.labels.L[]? | "      - \(.M.Name.S): \(.M.Confidence.N)%"' 2>/dev/null || echo "      (unable to parse labels)"
+                else
+                  echo "    (jq not available, showing raw response)"
+                  echo "$result"
+                fi
+                
+                return 0
+              else
+                # Empty result - item not found
+                if [ $attempt -lt $max_attempts ]; then
+                  echo "  Results not found yet, waiting ${wait_time} seconds..."
+                  sleep $wait_time
+                else
+                  echo "  Results not found after $max_attempts attempts"
+                  
+                  # Debug: Show what IS in the table
+                  echo ""
+                  echo "  Checking what's in the table..."
+                  table_check=$(aws dynamodb scan --table-name "${DYNAMODB_TABLE}" --select COUNT --region "${AWS_REGION}" 2>&1 || echo "ERROR")
+                  if echo "$table_check" | grep -q "Count"; then
+                    count=$(echo "$table_check" | grep -o '"Count": *[0-9]*' | grep -o '[0-9]*')
+                    echo "  Total items in table: ${count}"
+                    
+                    if [ "$count" -eq 0 ]; then
+                      echo "  Table is EMPTY - Lambda never wrote data"
+                    else
+                      echo "  Table has items but this filename wasn't found"
+                      echo "  Expected: ${s3_key}"
+                    fi
+                  fi
+                  
+                  return 1
+                fi
+              fi
+            done
+          }
+          
+          # Process each changed file
+          success_count=0
+          fail_count=0
           
           for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
             filename=$(basename "$file")
             s3_key="rekognition-input/beta/${filename}"
             
             echo ""
+            echo "========================================="
             echo "Checking for results: ${s3_key}"
+            echo "========================================="
             
-            # Query DynamoDB for the item
-            result=$(aws dynamodb get-item \
-              --table-name "${DYNAMODB_TABLE}" \
-              --key "{\"filename\": {\"S\": \"${s3_key}\"}}" \
-              --region "${AWS_REGION}" \
-              2>&1)
-            
-            if echo "$result" | grep -q "Item"; then
-              echo "Results found in DynamoDB"
-              
-              # Extract and display label count
-              label_count=$(echo "$result" | jq -r '.Item.label_count.N // "0"')
-              echo "  Label count: ${label_count}"
-              
-              # Display labels
-              echo "  Labels detected:"
-              echo "$result" | jq -r '.Item.labels.L[]? | "    - \(.M.Name.S): \(.M.Confidence.N)%"'
-              
+            if check_dynamodb "$s3_key"; then
+              success_count=$((success_count + 1))
             else
-              echo "Warning: Results not found in DynamoDB yet"
-              echo "This may indicate the Lambda function hasn't processed the image yet"
-              exit 1
+              fail_count=$((fail_count + 1))
+              echo ""
+              echo "  Troubleshooting hints:"
+              echo "  1. Check Lambda logs:"
+              echo "     aws logs tail /aws/lambda/rekognition-beta-handler --follow --region ${AWS_REGION}"
+              echo "  2. Verify S3 file was uploaded:"
+              echo "     aws s3 ls s3://\${S3_BUCKET}/${s3_key}"
+              echo "  3. Check table contents:"
+              echo "     aws dynamodb scan --table-name ${DYNAMODB_TABLE} --region ${AWS_REGION}"
             fi
           done
           
           echo ""
           echo "========================================="
           echo "Beta validation complete!"
-          echo "All images processed successfully"
           echo "========================================="
+          echo "  Successful: ${success_count}"
+          echo "  Failed: ${fail_count}"
+          echo ""
+          
+          # Exit with error if any validations failed
+          if [ $fail_count -gt 0 ]; then
+            echo "Some images were not processed successfully"
+            echo ""
+            echo "Common causes:"
+            echo "  1. Lambda function hasn't finished processing (usually takes 5-10 seconds)"
+            echo "  2. Lambda function encountered an error (check CloudWatch logs)"
+            echo "  3. S3 event notification not configured correctly"
+            echo "  4. Lambda doesn't have permission to write to DynamoDB"
+            echo ""
+            exit 1
+          fi
+          
+          echo "All images validated successfully!"
       
       - name: Comment on PR
         if: steps.changed-files.outputs.any_changed == 'true'
@@ -114,5 +214,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `##Beta Image Analysis Complete\n\n**Images processed:**\n${fileList}\n\n**Environment:** Beta\n**S3 Location:** \`rekognition-input/beta/\`\n**DynamoDB Table:** \`${process.env.DYNAMODB_TABLE}\`\n\n✅ Images uploaded and analyzed successfully via Lambda function.`
+              body: `## Beta Image Analysis Complete\n\n**Images processed:**\n${fileList}\n\n**Environment:** Beta\n**S3 Location:** \`rekognition-input/beta/\`\n**DynamoDB Table:** \`${process.env.DYNAMODB_TABLE}\`\n\n✅ Images uploaded and analyzed successfully via Lambda function.`
             })

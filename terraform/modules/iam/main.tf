@@ -1,7 +1,7 @@
 # IAM role for Lambda execution
 resource "aws_iam_role" "lambda_role" {
   name = "${var.project_name}-rekognition-lambda-role"
-  
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -14,7 +14,7 @@ resource "aws_iam_role" "lambda_role" {
       }
     ]
   })
-  
+
   tags = {
     Name        = "${var.project_name}-rekognition-lambda-role"
     Environment = var.environment
@@ -25,7 +25,7 @@ resource "aws_iam_role" "lambda_role" {
 resource "aws_iam_role_policy" "s3_policy" {
   name = "${var.project_name}-lambda-s3-policy"
   role = aws_iam_role.lambda_role.id
-  
+
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -48,7 +48,7 @@ resource "aws_iam_role_policy" "s3_policy" {
 resource "aws_iam_role_policy" "dynamodb_policy" {
   name = "${var.project_name}-lambda-dynamodb-policy"
   role = aws_iam_role.lambda_role.id
-  
+
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -75,7 +75,7 @@ resource "aws_iam_role_policy" "dynamodb_policy" {
 resource "aws_iam_role_policy" "rekognition_policy" {
   name = "${var.project_name}-lambda-rekognition-policy"
   role = aws_iam_role.lambda_role.id
-  
+
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -99,7 +99,7 @@ resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
 # Optional: IAM user for GitHub Actions (if not using OIDC)
 resource "aws_iam_user" "github_actions" {
   name = "${var.project_name}-github-actions-user"
-  
+
   tags = {
     Name        = "${var.project_name}-github-actions-user"
     Environment = var.environment
@@ -110,7 +110,7 @@ resource "aws_iam_user" "github_actions" {
 resource "aws_iam_user_policy" "github_actions_policy" {
   name = "${var.project_name}-github-actions-policy"
   user = aws_iam_user.github_actions.name
-  
+
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [

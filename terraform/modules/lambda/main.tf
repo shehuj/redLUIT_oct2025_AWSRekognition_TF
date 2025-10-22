@@ -9,22 +9,22 @@ data "archive_file" "lambda_zip" {
 resource "aws_lambda_function" "beta" {
   filename         = data.archive_file.lambda_zip.output_path
   function_name    = "rekognition-beta-handler"
-  role            = var.lambda_role_arn
-  handler         = "rekognition_handler.lambda_handler"
+  role             = var.lambda_role_arn
+  handler          = "rekognition_handler.lambda_handler"
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  runtime         = "python3.11"
-  timeout         = 60
-  memory_size     = 512
-  
+  runtime          = "python3.11"
+  timeout          = 60
+  memory_size      = 512
+
   environment {
     variables = {
-      DYNAMODB_TABLE  = var.dynamodb_tables.beta
-      ENVIRONMENT     = "beta"
-      MAX_LABELS      = "10"
-      MIN_CONFIDENCE  = "70.0"
+      DYNAMODB_TABLE = var.dynamodb_tables.beta
+      ENVIRONMENT    = "beta"
+      MAX_LABELS     = "10"
+      MIN_CONFIDENCE = "70.0"
     }
   }
-  
+
   tags = {
     Name        = "${var.project_name}-rekognition-beta-handler"
     Environment = "beta"
@@ -35,22 +35,22 @@ resource "aws_lambda_function" "beta" {
 resource "aws_lambda_function" "prod" {
   filename         = data.archive_file.lambda_zip.output_path
   function_name    = "rekognition-prod-handler"
-  role            = var.lambda_role_arn
-  handler         = "rekognition_handler.lambda_handler"
+  role             = var.lambda_role_arn
+  handler          = "rekognition_handler.lambda_handler"
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  runtime         = "python3.11"
-  timeout         = 60
-  memory_size     = 512
-  
+  runtime          = "python3.11"
+  timeout          = 60
+  memory_size      = 512
+
   environment {
     variables = {
-      DYNAMODB_TABLE  = var.dynamodb_tables.prod
-      ENVIRONMENT     = "prod"
-      MAX_LABELS      = "10"
-      MIN_CONFIDENCE  = "70.0"
+      DYNAMODB_TABLE = var.dynamodb_tables.prod
+      ENVIRONMENT    = "prod"
+      MAX_LABELS     = "10"
+      MIN_CONFIDENCE = "70.0"
     }
   }
-  
+
   tags = {
     Name        = "${var.project_name}-rekognition-prod-handler"
     Environment = "prod"
@@ -61,7 +61,7 @@ resource "aws_lambda_function" "prod" {
 resource "aws_cloudwatch_log_group" "beta" {
   name              = "/aws/lambda/rekognition-beta-handler"
   retention_in_days = 14
-  
+
   tags = {
     Name        = "${var.project_name}-beta-logs"
     Environment = "beta"
@@ -72,7 +72,7 @@ resource "aws_cloudwatch_log_group" "beta" {
 resource "aws_cloudwatch_log_group" "prod" {
   name              = "/aws/lambda/rekognition-prod-handler"
   retention_in_days = 30
-  
+
   tags = {
     Name        = "${var.project_name}-prod-logs"
     Environment = "prod"
@@ -83,7 +83,7 @@ resource "aws_cloudwatch_log_group" "prod" {
 resource "aws_lambda_function_url" "beta" {
   function_name      = aws_lambda_function.beta.function_name
   authorization_type = "NONE"
-  
+
   cors {
     allow_origins = ["*"]
     allow_methods = ["POST"]
@@ -95,7 +95,7 @@ resource "aws_lambda_function_url" "beta" {
 resource "aws_lambda_function_url" "prod" {
   function_name      = aws_lambda_function.prod.function_name
   authorization_type = "NONE"
-  
+
   cors {
     allow_origins = ["*"]
     allow_methods = ["POST"]
