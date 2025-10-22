@@ -160,7 +160,7 @@ check_terraform() {
     if terraform output &> /dev/null; then
         S3_BUCKET=$(terraform output -raw s3_bucket_name 2>/dev/null || echo "")
         BETA_TABLE=$(terraform output -raw dynamodb_beta_table_name 2>/dev/null || echo "beta_results")
-        PROD_TABLE=$(terraform output -raw dynamodb_prod_table_name 2>/dev/null || echo "prod_results")
+        PROD_TABLE=$(terraform output -raw dynamodb_prod_table_name 2>/null || echo "prod_results")
         
         if [ -n "$S3_BUCKET" ]; then
             print_success "Terraform state found"
@@ -196,17 +196,47 @@ check_s3() {
 # Check DynamoDB tables
 check_dynamodb() {
     print_header "Checking DynamoDB Tables"
-    
+
+    # Beta table
     if aws dynamodb describe-table --table-name "$BETA_TABLE" &> /dev/null; then
         print_success "Beta table exists: $BETA_TABLE"
+
+        # Provide partition + sort key for GetItem
+        KEY_FILENAME="example-file.jpg"
+        KEY_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+        print_info "Getting item from beta table using key: filename=$KEY_FILENAME, timestamp=$KEY_TIMESTAMP"
+        if aws dynamodb get-item \
+             --table-name "$BETA_TABLE" \
+             --key "{\"filename\":{\"S\":\"$KEY_FILENAME\"},\"timestamp\":{\"S\":\"$KEY_TIMESTAMP\"}}" &> /dev/null; then
+            print_success "Successfully retrieved an item from beta table"
+        else
+            print_failure "Failed to retrieve item from beta table with provided key"
+        fi
+
         BETA_COUNT=$(aws dynamodb scan --table-name "$BETA_TABLE" --select COUNT --output json | jq -r '.Count')
         print_info "Items in beta table: $BETA_COUNT"
     else
         print_failure "Beta table not found: $BETA_TABLE"
     fi
-    
+
+    # Prod table
     if aws dynamodb describe-table --table-name "$PROD_TABLE" &> /dev/null; then
         print_success "Prod table exists: $PROD_TABLE"
+
+        # Provide partition + sort key for GetItem (you may adjust values)
+        KEY_FILENAME="example-file.jpg"
+        KEY_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+        print_info "Getting item from prod table using key: filename=$KEY_FILENAME, timestamp=$KEY_TIMESTAMP"
+        if aws dynamodb get-item \
+             --table-name "$PROD_TABLE" \
+             --key "{\"filename\":{\"S\":\"$KEY_FILENAME\"},\"timestamp\":{\"S\":\"$KEY_TIMESTAMP\"}}" &> /dev/null; then
+            print_success "Successfully retrieved an item from prod table"
+        else
+            print_failure "Failed to retrieve item from prod table with provided key"
+        fi
+
         PROD_COUNT=$(aws dynamodb scan --table-name "$PROD_TABLE" --select COUNT --output json | jq -r '.Count')
         print_info "Items in prod table: $PROD_COUNT"
     else
@@ -217,7 +247,7 @@ check_dynamodb() {
 # Check Lambda functions
 check_lambda() {
     print_header "Checking Lambda Functions"
-    
+
     if aws lambda get-function --function-name rekognition-beta-handler &> /dev/null; then
         print_success "Beta Lambda function exists"
         STATUS=$(aws lambda get-function --function-name rekognition-beta-handler --query 'Configuration.State' --output text)
@@ -225,7 +255,7 @@ check_lambda() {
     else
         print_failure "Beta Lambda function not found"
     fi
-    
+
     if aws lambda get-function --function-name rekognition-prod-handler &> /dev/null; then
         print_success "Prod Lambda function exists"
         STATUS=$(aws lambda get-function --function-name rekognition-prod-handler --query 'Configuration.State' --output text)
@@ -238,14 +268,14 @@ check_lambda() {
 # Check S3 event notifications
 check_s3_events() {
     print_header "Checking S3 Event Notifications"
-    
+
     if [ -z "$S3_BUCKET" ]; then
         print_info "S3 bucket name not available, skipping checks"
         return
     fi
-    
+
     NOTIFICATIONS=$(aws s3api get-bucket-notification-configuration --bucket "$S3_BUCKET" --output json 2>/dev/null || echo '{}')
-    
+
     if [ "$NOTIFICATIONS" != "{}" ]; then
         LAMBDA_COUNT=$(echo "$NOTIFICATIONS" | jq -r '.LambdaFunctionConfigurations | length')
         print_success "S3 event notifications configured ($LAMBDA_COUNT Lambda triggers)"
@@ -257,14 +287,14 @@ check_s3_events() {
 # Test local script
 test_local_script() {
     print_header "Testing Local Analysis Script"
-    
+
     if [ ! -f "$PROJECT_ROOT/scripts/analyze_image.py" ]; then
         print_failure "analyze_image.py not found"
         return
     fi
-    
+
     print_success "analyze_image.py exists"
-    
+
     if [ -x "$PROJECT_ROOT/scripts/analyze_image.py" ]; then
         print_success "Script is executable"
     else
@@ -290,7 +320,7 @@ print_summary() {
 main() {
     echo "Rekognition Pipeline Validation"
     echo "================================"
-    
+
     check_prerequisites
     check_aws_credentials
     check_terraform
