@@ -59,7 +59,7 @@ jobs:
         run: |
           set -e  # Exit on error
           
-          echo "Validating results in DynamoDB table: ${DYNAMODB_TABLE}"
+          echo "Validating results in DynamoDB table: ${DYNAMODB_TABLE_PROD}"
           echo "Region: ${AWS_REGION}"
           
           # Function to check DynamoDB for results with retries
@@ -74,7 +74,7 @@ jobs:
               # Query DynamoDB for the item
               set +e  # Don't exit on error for this command
               result=$(aws dynamodb get-item \
-                --table-name "${DYNAMODB_TABLE}" \
+                --table-name "${DYNAMODB_TABLE_}" \
                 --key '{"filename": {"S": "'"${s3_key}"'"}}' \
                 --region "${AWS_REGION}" 2>&1)
               query_exit_code=$?
@@ -133,7 +133,7 @@ jobs:
                   # Debug: Show what IS in the table
                   echo ""
                   echo "  Checking what's in the table..."
-                  table_check=$(aws dynamodb scan --table-name "${DYNAMODB_TABLE}" --select COUNT --region "${AWS_REGION}" 2>&1 || echo "ERROR")
+                  table_check=$(aws dynamodb scan --table-name "${DYNAMODB_TABLE_PROD}" --select COUNT --region "${AWS_REGION}" 2>&1 || echo "ERROR")
                   if echo "$table_check" | grep -q "Count"; then
                     count=$(echo "$table_check" | grep -o '"Count": *[0-9]*' | grep -o '[0-9]*')
                     echo "  Total items in table: ${count}"
@@ -210,7 +210,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** Production" >> $GITHUB_STEP_SUMMARY
           echo "**S3 Location:** \`rekognition-input/prod/\`" >> $GITHUB_STEP_SUMMARY
-          echo "**DynamoDB Table:** \`${DYNAMODB_TABLE}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**DynamoDB Table:** \`${DYNAMODB_TABLE_PROD}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Images Processed" >> $GITHUB_STEP_SUMMARY
           

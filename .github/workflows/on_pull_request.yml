@@ -59,7 +59,7 @@ jobs:
         run: |
           set -e  # Exit on error
           
-          echo "Validating results in DynamoDB table: ${DYNAMODB_TABLE}"
+          echo "Validating results in DynamoDB table: ${DYNAMODB_TABLE_BETA}"
           echo "Region: ${AWS_REGION}"
           
           # Function to check DynamoDB for results with retries
@@ -74,7 +74,7 @@ jobs:
               # Query DynamoDB for the item
               set +e  # Don't exit on error for this command
               result=$(aws dynamodb get-item \
-                --table-name "${DYNAMODB_TABLE}" \
+                --table-name "${DYNAMODB_TABLE_BETA}" \
                 --key '{"filename": {"S": "'"${s3_key}"'"}}' \
                 --region "${AWS_REGION}" 2>&1)
               query_exit_code=$?
@@ -91,7 +91,7 @@ jobs:
                   return 1
                 elif echo "$result" | grep -q "ResourceNotFoundException"; then
                   echo ""
-                  echo "  Table not found! Verify table name: ${DYNAMODB_TABLE}"
+                  echo "  Table not found! Verify table name: ${DYNAMODB_TABLE_BETA}"
                   return 1
                 fi
                 
@@ -133,7 +133,7 @@ jobs:
                   # Debug: Show what IS in the table
                   echo ""
                   echo "  Checking what's in the table..."
-                  table_check=$(aws dynamodb scan --table-name "${DYNAMODB_TABLE}" --select COUNT --region "${AWS_REGION}" 2>&1 || echo "ERROR")
+                  table_check=$(aws dynamodb scan --table-name "${DYNAMODB_TABLE_BETA}" --select COUNT --region "${AWS_REGION}" 2>&1 || echo "ERROR")
                   if echo "$table_check" | grep -q "Count"; then
                     count=$(echo "$table_check" | grep -o '"Count": *[0-9]*' | grep -o '[0-9]*')
                     echo "  Total items in table: ${count}"
@@ -176,7 +176,7 @@ jobs:
               echo "  2. Verify S3 file was uploaded:"
               echo "     aws s3 ls s3://\${S3_BUCKET}/${s3_key}"
               echo "  3. Check table contents:"
-              echo "     aws dynamodb scan --table-name ${DYNAMODB_TABLE} --region ${AWS_REGION}"
+              echo "     aws dynamodb scan --table-name ${DYNAMODB_TABLE_BETA} --region ${AWS_REGION}"
             fi
           done
           
