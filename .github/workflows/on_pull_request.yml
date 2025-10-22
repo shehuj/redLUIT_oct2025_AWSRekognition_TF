@@ -40,6 +40,7 @@ jobs:
             images/**/*.jpg
             images/**/*.jpeg
             images/**/*.png
+            images/**/*
       
       - name: Upload images to S3 Beta
         if: steps.changed-files.outputs.any_changed == 'true'
