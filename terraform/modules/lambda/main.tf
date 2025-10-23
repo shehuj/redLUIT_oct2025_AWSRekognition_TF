@@ -1,7 +1,7 @@
 # Package Lambda function code
 data "archive_file" "lambda_zip" {
   type        = "zip"
-  source_dir  = "${path.root}/../lambda"
+  source_dir  = "${path.root}/lambda"
   output_path = "${path.module}/lambda_function.zip"
 }
 
@@ -38,7 +38,7 @@ resource "aws_lambda_function" "prod" {
   role             = var.lambda_role_arn
   handler          = "rekognition_handler.lambda_handler"
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  runtime          = "python3.11"
+  runtime          = "python3.12"
   timeout          = 60
   memory_size      = 512
 
