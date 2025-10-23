@@ -13,7 +13,7 @@ from urllib.parse import unquote_plus
 rekognition_client = boto3.client('rekognition')
 dynamodb = boto3.resource('dynamodb')
 s3_client = boto3.client('s3')
-bucket_name = os.environ.get('S3_BUCKET', 'pixel-learning-rekognition-images-7bgawsey')
+bucket_name = os.environ.get('S3_BUCKET', 'pixel-learning-rekognition-images-4sfnas3n')
 
 # Get DynamoDB table name from environment variable
 DYNAMODB_TABLE = os.environ.get('DYNAMODB_TABLE', 'beta_results')
@@ -54,9 +54,9 @@ def lambda_handler(event, context):
         }
     
     # Validate image extension
-    valid_extensions = ('.jpg', '.jpeg', '.png')
+    valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', 'mp4', '.mov', '.avi', '.pdf', '.heic')
     if not key.lower().endswith(valid_extensions):
-        error_msg = f"Invalid file type. Must be .jpg, .jpeg, or .png"
+        error_msg = f"Invalid file type. Must be one of {valid_extensions}, got: {key}"
         print(error_msg)
         return {
             'statusCode': 400,
