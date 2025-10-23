@@ -54,9 +54,9 @@ jobs:
             echo "Uploaded to s3://${S3_BUCKET}/rekognition-input/beta/${filename}"
           done
       
-          - name: Validate DynamoDB Results
-          if: steps.changed-files.outputs.any_changed == 'true'
-          run: |
+      - name: Validate DynamoDB Results
+        if: steps.changed-files.outputs.any_changed == 'true'
+        run: |
             set -e  # Exit on error
   
             echo "Validating results in DynamoDB table: ${DYNAMODB_TABLE_BETA}"
