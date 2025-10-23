@@ -2,7 +2,7 @@
 data "archive_file" "lambda_zip" {
   type        = "zip"
   source_dir  = "${path.root}/lambda"
-  output_path = "${path.module}/lambda_function.zip"
+  output_path = "${path.module}/../lambda_function.zip"
 }
 
 # Beta Lambda function
