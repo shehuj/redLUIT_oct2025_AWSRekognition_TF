@@ -8,7 +8,7 @@ from urllib.parse import unquote_plus
 rekognition_client = boto3.client('rekognition')
 dynamodb = boto3.resource('dynamodb')
 bucket_name = os.environ.get('S3_BUCKET', 'pixel-learning-rekognition-images-4sfnas3n')
-DYNAMODB_TABLE = os.environ.get('DYNAMODB_TABLE_PROD', 'beta_results')
+DYNAMODB_TABLE = os.environ.get('DYNAMODB_TABLE_PROD', 'prod_results')
 
 def lambda_handler(event, context):
     """
@@ -116,7 +116,9 @@ def lambda_handler(event, context):
             'message': 'Image processed successfully',
             'filename': key,
             'label_count': label_count,
-            'environment': 'beta',
+            'environment': 'prod',
+            'analysis_method': 'lambda_s3_trigger',
+            's3_bucket': bucket,
             'timestamp': timestamp
         })
     }
