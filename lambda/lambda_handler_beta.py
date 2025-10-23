@@ -44,7 +44,7 @@ def lambda_handler(event, context):
         }
 
     # Validate image extension
-    valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.heic, '.pdf')
+    valid_extensions = ('.jpg', '.jpeg', '.png', '.pdf', '.heic')
     if not key.lower().endswith(valid_extensions):
         error_msg = f"Invalid file type. Must be one of {valid_extensions}, got: {key}"
         print(error_msg)
@@ -59,7 +59,7 @@ def lambda_handler(event, context):
         response = rekognition_client.detect_labels(
             Image={'S3Object': {'Bucket': bucket, 'Name': key}},
             MaxLabels=10,
-            MinConfidence=70.0
+            MinConfidence=50.0
         )
         label_count = len(response.get('Labels', []))
         print(f"Rekognition found {label_count} label(s)")
@@ -83,7 +83,7 @@ def lambda_handler(event, context):
         print(f"  - {lbl['Name']}: {lbl['Confidence']}%")
 
     # Prepare DynamoDB item
-    timestamp = datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+    timestamp = datetime.timezone().isoformat(timespec='seconds') + 'Z'
     item = {
         'filename': key,
         'timestamp': timestamp,
