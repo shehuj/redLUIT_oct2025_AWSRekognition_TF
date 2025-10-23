@@ -1,8 +1,8 @@
 # Package Lambda function code
 data "archive_file" "lambda_zip" {
   type        = "zip"
-  source_dir  = "${path.root}/lambda"
-  output_path = "${path.module}/../lambda_function.zip"
+  source_dir  = "${path.root}/../lambda"
+  output_path = "${path.module}/lambda_function.zip"
 }
 
 # Beta Lambda function
