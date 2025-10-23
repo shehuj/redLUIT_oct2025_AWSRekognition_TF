@@ -33,7 +33,22 @@ resource "aws_iam_role_policy" "s3_policy" {
         Effect = "Allow"
         Action = [
           "s3:GetObject",
-          "s3:ListBucket"
+          "s3:ListBucket",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:GetBucketLocation",
+          "s3:GetBucketVersioning",
+          "s3:PutBucketVersioning",
+          "s3:CreateBucket",
+          "s3:DeleteBucket",
+          "s3:PutBucketPublicAccessBlock",
+          "s3:GetBucketPublicAccessBlock",
+          "s3:PutBucketWebsite",
+          "s3:GetBucketWebsite",
+          "s3:PutBucketTagging",
+          "s3:GetBucketTagging",
+          "s3:PutBucketAcl",
+          "s3:GetBucketAcl"
         ]
         Resource = [
           var.s3_bucket_arn,
@@ -58,7 +73,11 @@ resource "aws_iam_role_policy" "dynamodb_policy" {
           "dynamodb:PutItem",
           "dynamodb:GetItem",
           "dynamodb:Query",
-          "dynamodb:Scan"
+          "dynamodb:Scan",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:DescribeTable",
+          "dynamodb:ListTables"
         ]
         Resource = [
           var.dynamodb_table_arns.beta,
@@ -82,7 +101,19 @@ resource "aws_iam_role_policy" "rekognition_policy" {
       {
         Effect = "Allow"
         Action = [
-          "rekognition:DetectLabels"
+          "rekognition:DetectLabels",
+          "rekognition:DetectText",
+          "rekognition:DetectFaces",
+          "rekognition:RecognizeCelebrities",
+          "rekognition:DetectModerationLabels",
+          "rekognition:DetectProtectiveEquipment",
+          "rekognition:DetectTextModeration",
+          "rekognition:IndexFaces",
+          "rekognition:SearchFaces",
+          "rekognition:SearchFacesByImage",
+          "rekognition:DeleteFaces",
+          "rekognition:ListFaces",
+          "rekognition:ListCollections"
         ]
         Resource = "*"
       }
