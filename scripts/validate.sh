@@ -159,14 +159,14 @@ check_terraform() {
     
     if terraform output &> /dev/null; then
         S3_BUCKET=$(terraform output -raw s3_bucket_name 2>/dev/null || echo "")
-        BETA_TABLE=$(terraform output -raw dynamodb_beta_table_name 2>/dev/null || echo "beta_results")
-        PROD_TABLE=$(terraform output -raw dynamodb_prod_table_name 2>/null || echo "prod_results")
+        DYNAMO_TABLE_BETA=$(terraform output -raw dynamodb_beta_table_name 2>/dev/null || echo "beta_results")
+        DYNAMO_TABLE_PROD=$(terraform output -raw dynamodb_prod_table_name 2>/null || echo "prod_results")
         
         if [ -n "$S3_BUCKET" ]; then
             print_success "Terraform state found"
             print_info "S3 Bucket: $S3_BUCKET"
-            print_info "Beta Table: $BETA_TABLE"
-            print_info "Prod Table: $PROD_TABLE"
+            print_info "Beta Table: $DYNAMO_TABLE_BETA"
+            print_info "Prod Table: $DYNAMO_TABLE_PROD"
         fi
     else
         print_info "Terraform not applied yet"
@@ -198,8 +198,8 @@ check_dynamodb() {
     print_header "Checking DynamoDB Tables"
 
     # Beta table
-    if aws dynamodb describe-table --table-name "$BETA_TABLE" &> /dev/null; then
-        print_success "Beta table exists: $BETA_TABLE"
+    if aws dynamodb describe-table --table-name "$DYNAMO_TABLE_BETA" &> /dev/null; then
+        print_success "Beta table exists: $DYNAMO_TABLE_BETA"
 
         # Provide partition + sort key for GetItem
         KEY_FILENAME=["s3.jpg", "dna.JPG, "luit-4.pdf"][0] 
@@ -248,17 +248,17 @@ check_dynamodb() {
 check_lambda() {
     print_header "Checking Lambda Functions"
 
-    if aws lambda get-function --function-name rekognition-beta-handler &> /dev/null; then
+    if aws lambda get-function --function-name lambda_handler_beta &> /dev/null; then
         print_success "Beta Lambda function exists"
-        STATUS=$(aws lambda get-function --function-name rekognition-beta-handler --query 'Configuration.State' --output text)
+        STATUS=$(aws lambda get-function --function-name lambda_handler_beta --query 'Configuration.State' --output text)
         print_info "Status: $STATUS"
     else
         print_failure "Beta Lambda function not found"
     fi
 
-    if aws lambda get-function --function-name rekognition-prod-handler &> /dev/null; then
+    if aws lambda get-function --function-name lambda_handler_beta &> /dev/null; then
         print_success "Prod Lambda function exists"
-        STATUS=$(aws lambda get-function --function-name rekognition-prod-handler --query 'Configuration.State' --output text)
+        STATUS=$(aws lambda get-function --function-name lambda_handler_beta --query 'Configuration.State' --output text)
         print_info "Status: $STATUS"
     else
         print_failure "Prod Lambda function not found"
@@ -288,18 +288,18 @@ check_s3_events() {
 test_local_script() {
     print_header "Testing Local Analysis Script"
 
-    if [ ! -f "$PROJECT_ROOT/scripts/analyze_image.py" ]; then
-        print_failure "analyze_image.py not found"
+    if [ ! -f "$PROJECT_ROOT/scripts/analyze_image_advance.py" ]; then
+        print_failure "analyze_image_advance.py not found"
         return
     fi
 
-    print_success "analyze_image.py exists"
+    print_success "analyze_image_advance.py exists"
 
-    if [ -x "$PROJECT_ROOT/scripts/analyze_image.py" ]; then
+    if [ -x "$PROJECT_ROOT/scripts/analyze_image_advance.py" ]; then
         print_success "Script is executable"
     else
         print_info "Making script executable..."
-        chmod +x "$PROJECT_ROOT/scripts/analyze_image.py"
+        chmod +x "$PROJECT_ROOT/scripts/analyze_image_advance.py"
     fi
 }
 
@@ -326,7 +326,7 @@ main() {
     check_terraform
     check_s3
     check_dynamodb
-    check_lambda
+    check_lambda   
     check_s3_events
     test_local_script
     print_summary
